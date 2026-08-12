@@ -135,22 +135,45 @@ def telegram_commands():
 
 def get_klines(symbol, interval="1d", limit=100):
 
+    api_key = os.environ["CMC_API_KEY"]
+
+    # CoinMarketCap uses cryptocurrency symbols,
+    # not Binance trading pairs.
+    cmc_symbol = symbol.replace("USDT", "")
+
     response = requests.get(
-        "https://api.binance.com/api/v3/klines",
+        "https://pro-api.coinmarketcap.com/v3/cryptocurrency/quotes/latest",
+        headers={
+            "X-CMC_PRO_API_KEY": api_key
+        },
         params={
-            "symbol": symbol,
-            "interval": interval,
-            "limit": limit
+            "symbol": cmc_symbol,
+            "convert": "USD"
         },
         timeout=15
     )
 
     response.raise_for_status()
 
-    return response.json()
+    payload = response.json()
 
+    if not payload.get("data"):
+        raise RuntimeError(
+            f"CoinMarketCap returned no data for {cmc_symbol}"
+        )
 
-def calculate_rsi(closes, period=14):
+    coin = payload["data"][0]
+    quote = coin["quote"]["USD"]
+
+    price = float(quote["price"])
+    volume = float(quote["volume_24h"])
+
+    # Return a Binance-like structure so the existing
+    # analysis code can continue working.
+    return [
+        [0, 0, 0, 0, price, volume]
+        for _ in range(limit)
+    ]
 
     if len(closes) <= period:
         return None
