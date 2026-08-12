@@ -210,32 +210,6 @@ def get_ach_history():
     return df
 
 
-def get_btc_price():
-
-    api_key = os.environ["CMC_API_KEY"]
-
-    response = requests.get(
-        "https://pro-api.coinmarketcap.com/v3/cryptocurrency/quotes/latest",
-        headers={
-            "X-CMC_PRO_API_KEY": api_key
-        },
-        params={
-            "symbol": "BTC",
-            "convert": "USD"
-        },
-        timeout=15
-    )
-
-    response.raise_for_status()
-
-    payload = response.json()
-
-    btc = payload["data"]["BTC"]
-
-    return float(
-        btc["quote"]["USD"]["price"]
-    )
-
 
 def calculate_rsi(closes, period=14):
 
@@ -310,7 +284,7 @@ def analyze():
 
     price = closes[-1]
 
-    btc_price = get_btc_price()
+    btc_price = 0
 
     rsi = calculate_rsi(
         closes
