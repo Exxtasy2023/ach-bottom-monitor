@@ -133,13 +133,86 @@ def telegram_commands():
 # MARKET DATA
 # =========================
 
-def get_klines(symbol, interval="1d", limit=100):
+import pandas as pd
+
+HISTORY_FILE = "alchemy-pay.xlsx"
+
+
+def load_ach_history():
+
+    df = pd.read_excel(
+        HISTORY_FILE,
+        engine="openpyxl"
+    )
+
+    required_columns = [
+        "timeOpen",
+        "priceOpen",
+        "priceHigh",
+        "priceLow",
+        "priceClose",
+        "volume"
+    ]
+
+    missing = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
+
+    if missing:
+        raise RuntimeError(
+            "Missing columns: "
+            + ", ".join(missing)
+        )
+
+    df["timeOpen"] = pd.to_numeric(
+        df["timeOpen"],
+        errors="coerce"
+    )
+
+    df["priceClose"] = pd.to_numeric(
+        df["priceClose"],
+        errors="coerce"
+    )
+
+    df["volume"] = pd.to_numeric(
+        df["volume"],
+        errors="coerce"
+    )
+
+    df = df.dropna(
+        subset=[
+            "timeOpen",
+            "priceClose",
+            "volume"
+        ]
+    )
+
+    df = df.sort_values(
+        "timeOpen"
+    ).reset_index(
+        drop=True
+    )
+
+    return df
+
+
+def get_ach_history():
+
+    df = load_ach_history()
+
+    if len(df) < 31:
+        raise RuntimeError(
+            "Not enough ACH historical data"
+        )
+
+    return df
+
+
+def get_btc_price():
 
     api_key = os.environ["CMC_API_KEY"]
-
-    # CoinMarketCap uses cryptocurrency symbols,
-    # not Binance trading pairs.
-    cmc_symbol = symbol.replace("USDT", "")
 
     response = requests.get(
         "https://pro-api.coinmarketcap.com/v3/cryptocurrency/quotes/latest",
@@ -147,7 +220,7 @@ def get_klines(symbol, interval="1d", limit=100):
             "X-CMC_PRO_API_KEY": api_key
         },
         params={
-            "symbol": cmc_symbol,
+            "symbol": "BTC",
             "convert": "USD"
         },
         timeout=15
@@ -157,23 +230,14 @@ def get_klines(symbol, interval="1d", limit=100):
 
     payload = response.json()
 
-    if not payload.get("data"):
-        raise RuntimeError(
-            f"CoinMarketCap returned no data for {cmc_symbol}"
-        )
+    btc = payload["data"]["BTC"]
 
-    coin = payload["data"][0]
-    quote = coin["quote"]["USD"]
+    return float(
+        btc["quote"]["USD"]["price"]
+    )
 
-    price = float(quote["price"])
-    volume = float(quote["volume_24h"])
 
-    # Return a Binance-like structure so the existing
-    # analysis code can continue working.
-    return [
-        [0, 0, 0, 0, price, volume]
-        for _ in range(limit)
-    ]
+def calculate_rsi(closes, period=14):
 
     if len(closes) <= period:
         return None
@@ -188,8 +252,13 @@ def get_klines(symbol, interval="1d", limit=100):
 
         change = new - old
 
-        gains.append(max(change, 0))
-        losses.append(max(-change, 0))
+        gains.append(
+            max(change, 0)
+        )
+
+        losses.append(
+            max(-change, 0)
+        )
 
     average_gain = sum(gains) / period
     average_loss = sum(losses) / period
@@ -199,7 +268,9 @@ def get_klines(symbol, interval="1d", limit=100):
 
     rs = average_gain / average_loss
 
-    return 100 - (100 / (1 + rs))
+    return 100 - (
+        100 / (1 + rs)
+    )
 
 
 def percentage_change(old, new):
@@ -207,7 +278,11 @@ def percentage_change(old, new):
     if old == 0:
         return 0
 
-    return ((new - old) / old) * 100
+    return (
+        (new - old)
+        / old
+        * 100
+    )
 
 
 # =========================
@@ -216,87 +291,67 @@ def percentage_change(old, new):
 
 def analyze():
 
-    ach = get_klines(
-        ACH_SYMBOL,
-        "1d",
-        100
-    )
+    df = get_ach_history()
 
-    btc = get_klines(
-        BTC_SYMBOL,
-        "1d",
-        100
-    )
-
-    ach_closes = [
-        float(x[4])
-        for x in ach
+    closes = [
+        float(x)
+        for x in df["priceClose"].tolist()
     ]
 
-    ach_volumes = [
-        float(x[5])
-        for x in ach
+    volumes = [
+        float(x)
+        for x in df["volume"].tolist()
     ]
 
-    btc_closes = [
-        float(x[4])
-        for x in btc
-    ]
+    if len(closes) < 31:
+        raise RuntimeError(
+            "Not enough historical ACH data"
+        )
 
-    price = ach_closes[-1]
+    price = closes[-1]
 
-    btc_price = btc_closes[-1]
+    btc_price = get_btc_price()
 
     rsi = calculate_rsi(
-        ach_closes
+        closes
     )
 
     ach_24h = percentage_change(
-        ach_closes[-2],
-        ach_closes[-1]
-    )
-
-    btc_24h = percentage_change(
-        btc_closes[-2],
-        btc_closes[-1]
+        closes[-2],
+        closes[-1]
     )
 
     ach_7d = percentage_change(
-        ach_closes[-8],
-        ach_closes[-1]
-    )
-
-    btc_7d = percentage_change(
-        btc_closes[-8],
-        btc_closes[-1]
+        closes[-8],
+        closes[-1]
     )
 
     average_volume = (
-        sum(ach_volumes[-21:-1])
+        sum(volumes[-21:-1])
         / 20
     )
 
     volume_ratio = (
-        ach_volumes[-1]
+        volumes[-1]
         / average_volume
         if average_volume
         else 0
     )
 
     low_7d = min(
-        ach_closes[-7:]
+        closes[-7:]
     )
 
     low_30d = min(
-        ach_closes[-30:]
+        closes[-30:]
     )
 
     previous_low = min(
-        ach_closes[-10:-5]
+        closes[-10:-5]
     )
 
     recent_low = min(
-        ach_closes[-5:]
+        closes[-5:]
     )
 
     higher_low = (
@@ -373,24 +428,6 @@ def analyze():
                 "цена близко к 30d минимуму"
             )
 
-    # BTC filter
-
-    if btc_24h >= 0 and ach_24h < 0:
-
-        score += 1
-
-        reasons.append(
-            "ACH слабее BTC"
-        )
-
-    elif btc_24h > 0 and ach_24h > 0:
-
-        score += 1
-
-        reasons.append(
-            "BTC и ACH растут вместе"
-        )
-
     # Recovery
 
     recovery = percentage_change(
@@ -443,9 +480,9 @@ def analyze():
         "btc_price": btc_price,
         "rsi": rsi,
         "ach_24h": ach_24h,
-        "btc_24h": btc_24h,
+        "btc_24h": 0,
         "ach_7d": ach_7d,
-        "btc_7d": btc_7d,
+        "btc_7d": 0,
         "volume_ratio": volume_ratio,
         "low_7d": low_7d,
         "low_30d": low_30d,
