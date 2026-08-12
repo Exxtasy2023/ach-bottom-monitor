@@ -11,7 +11,10 @@ SYMBOL = "ACHUSDT"
 INTERVAL = int(os.getenv("INTERVAL_SECONDS", "900"))
 
 app = Flask(__name__)
-
+@app.get("/test")
+def test():
+    send_telegram("🟢 ACH Monitor: Telegram connection works!")
+    return "Test message sent", 200
 
 @app.get("/")
 def health():
