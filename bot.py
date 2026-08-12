@@ -4,10 +4,6 @@ import threading
 import requests
 from flask import Flask
 
-# =========================
-# SETTINGS
-# =========================
-
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 CHAT_ID = str(os.environ["CHAT_ID"])
 
@@ -16,20 +12,129 @@ CHECK_INTERVAL = int(os.getenv("INTERVAL_SECONDS", "900"))
 ACH_SYMBOL = "ACHUSDT"
 BTC_SYMBOL = "BTCUSDT"
 
-# Важные уровни ACH
-LEVELS = [0.0030, 0.0035, 0.0040, 0.0055, 0.0070, 0.0100]
-
 app = Flask(__name__)
+
+telegram_thread_started = False
+monitor_thread_started = False
 
 last_update_id = 0
 last_alert = None
 
 
 # =========================
-# BINANCE DATA
+# TELEGRAM
+# =========================
+
+def send_telegram(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+
+    response = requests.post(
+        url,
+        json={
+            "chat_id": CHAT_ID,
+            "text": text
+        },
+        timeout=15
+    )
+
+    print("Telegram response:", response.status_code)
+
+
+def telegram_commands():
+    global last_update_id
+
+    print("Telegram command listener started")
+
+    send_telegram(
+        "🟢 ACH Monitor запущен!\n\n"
+        "Команды:\n"
+        "/status — текущий анализ ACH\n"
+        "/help — список команд"
+    )
+
+    while True:
+
+        try:
+
+            response = requests.get(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates",
+                params={
+                    "offset": last_update_id + 1,
+                    "timeout": 25
+                },
+                timeout=35
+            )
+
+            data = response.json()
+
+            for update in data.get("result", []):
+
+                last_update_id = update["update_id"]
+
+                message = update.get("message", {})
+
+                text = message.get("text", "").strip()
+
+                chat_id = str(
+                    message.get("chat", {}).get("id", "")
+                )
+
+                print(
+                    f"Telegram message: {text} "
+                    f"from chat {chat_id}"
+                )
+
+                if chat_id != CHAT_ID:
+                    continue
+
+                if text == "/start":
+
+                    send_telegram(
+                        "🟢 ACH Monitor работает.\n\n"
+                        "Напиши /status для анализа ACH."
+                    )
+
+                elif text == "/status":
+
+                    try:
+
+                        data = analyze()
+
+                        send_telegram(
+                            format_status(data)
+                        )
+
+                    except Exception as error:
+
+                        print("Status error:", error)
+
+                        send_telegram(
+                            "⚠️ Не удалось получить данные ACH.\n"
+                            "Попробуй ещё раз через минуту."
+                        )
+
+                elif text == "/help":
+
+                    send_telegram(
+                        "🤖 ACH Bottom Monitor\n\n"
+                        "/start — проверить бота\n"
+                        "/status — анализ ACH\n"
+                        "/help — список команд"
+                    )
+
+        except Exception as error:
+
+            print("Telegram listener error:", error)
+
+            time.sleep(5)
+
+
+# =========================
+# MARKET DATA
 # =========================
 
 def get_klines(symbol, interval="1d", limit=100):
+
     response = requests.get(
         "https://api.binance.com/api/v3/klines",
         params={
@@ -41,24 +146,9 @@ def get_klines(symbol, interval="1d", limit=100):
     )
 
     response.raise_for_status()
+
     return response.json()
 
-
-def get_price(symbol):
-    response = requests.get(
-        "https://api.binance.com/api/v3/ticker/price",
-        params={"symbol": symbol},
-        timeout=15
-    )
-
-    response.raise_for_status()
-
-    return float(response.json()["price"])
-
-
-# =========================
-# INDICATORS
-# =========================
 
 def calculate_rsi(closes, period=14):
 
@@ -72,6 +162,7 @@ def calculate_rsi(closes, period=14):
         closes[-period - 1:-1],
         closes[-period:]
     ):
+
         change = new - old
 
         gains.append(max(change, 0))
@@ -97,25 +188,46 @@ def percentage_change(old, new):
 
 
 # =========================
-# MARKET ANALYSIS
+# ANALYSIS
 # =========================
 
 def analyze():
 
-    ach = get_klines(ACH_SYMBOL, "1d", 100)
-    btc = get_klines(BTC_SYMBOL, "1d", 100)
+    ach = get_klines(
+        ACH_SYMBOL,
+        "1d",
+        100
+    )
 
-    ach_closes = [float(x[4]) for x in ach]
-    ach_volumes = [float(x[5]) for x in ach]
+    btc = get_klines(
+        BTC_SYMBOL,
+        "1d",
+        100
+    )
 
-    btc_closes = [float(x[4]) for x in btc]
+    ach_closes = [
+        float(x[4])
+        for x in ach
+    ]
+
+    ach_volumes = [
+        float(x[5])
+        for x in ach
+    ]
+
+    btc_closes = [
+        float(x[4])
+        for x in btc
+    ]
 
     price = ach_closes[-1]
+
     btc_price = btc_closes[-1]
 
-    rsi = calculate_rsi(ach_closes)
+    rsi = calculate_rsi(
+        ach_closes
+    )
 
-    # 24h
     ach_24h = percentage_change(
         ach_closes[-2],
         ach_closes[-1]
@@ -126,7 +238,6 @@ def analyze():
         btc_closes[-1]
     )
 
-    # 7 days
     ach_7d = percentage_change(
         ach_closes[-8],
         ach_closes[-1]
@@ -137,105 +248,172 @@ def analyze():
         btc_closes[-1]
     )
 
-    # Volume
-    average_volume = sum(ach_volumes[-21:-1]) / 20
+    average_volume = (
+        sum(ach_volumes[-21:-1])
+        / 20
+    )
 
     volume_ratio = (
-        ach_volumes[-1] / average_volume
+        ach_volumes[-1]
+        / average_volume
         if average_volume
         else 0
     )
 
-    # Recent lows
-    low_7d = min(ach_closes[-7:])
-    low_30d = min(ach_closes[-30:])
+    low_7d = min(
+        ach_closes[-7:]
+    )
 
-    # Higher-low approximation
-    previous_low = min(ach_closes[-10:-5])
-    recent_low = min(ach_closes[-5:])
+    low_30d = min(
+        ach_closes[-30:]
+    )
 
-    higher_low = recent_low > previous_low
+    previous_low = min(
+        ach_closes[-10:-5]
+    )
 
-    # =========================
-    # BOTTOM SCORE
-    # =========================
+    recent_low = min(
+        ach_closes[-5:]
+    )
+
+    higher_low = (
+        recent_low > previous_low
+    )
 
     score = 0
+
     reasons = []
 
     # RSI
+
     if rsi is not None:
 
         if rsi < 25:
+
             score += 2
-            reasons.append("RSI очень низкий")
+
+            reasons.append(
+                "RSI очень низкий"
+            )
 
         elif rsi < 30:
+
             score += 1
-            reasons.append("RSI в зоне перепроданности")
+
+            reasons.append(
+                "RSI в зоне перепроданности"
+            )
 
     # Volume
+
     if volume_ratio >= 3:
+
         score += 2
-        reasons.append("экстремальный объём")
+
+        reasons.append(
+            "экстремальный объём"
+        )
 
     elif volume_ratio >= 2:
+
         score += 1
-        reasons.append("повышенный объём")
+
+        reasons.append(
+            "повышенный объём"
+        )
 
     # Higher low
+
     if higher_low:
+
         score += 2
-        reasons.append("формируется higher low")
 
-    # Price near 30d low
-    distance_from_low = (
-        (price - low_30d) / low_30d * 100
-        if low_30d
-        else 0
-    )
+        reasons.append(
+            "формируется higher low"
+        )
 
-    if distance_from_low <= 5:
-        score += 1
-        reasons.append("цена близко к 30d минимуму")
+    # Near 30d low
+
+    if low_30d > 0:
+
+        distance = (
+            (price - low_30d)
+            / low_30d
+            * 100
+        )
+
+        if distance <= 5:
+
+            score += 1
+
+            reasons.append(
+                "цена близко к 30d минимуму"
+            )
 
     # BTC filter
+
     if btc_24h >= 0 and ach_24h < 0:
+
         score += 1
-        reasons.append("ACH слабее BTC")
+
+        reasons.append(
+            "ACH слабее BTC"
+        )
 
     elif btc_24h > 0 and ach_24h > 0:
-        score += 1
-        reasons.append("BTC и ACH растут вместе")
 
-    # Recovery from recent low
+        score += 1
+
+        reasons.append(
+            "BTC и ACH растут вместе"
+        )
+
+    # Recovery
+
     recovery = percentage_change(
         low_7d,
         price
     )
 
     if recovery >= 5:
-        score += 1
-        reasons.append("есть восстановление от минимума")
 
-    # =========================
-    # STATUS
-    # =========================
+        score += 1
+
+        reasons.append(
+            "есть восстановление от 7d минимума"
+        )
+
+    # Status
 
     if score <= 2:
-        status = "🟥 Дно пока не подтверждается"
+
+        status = (
+            "🟥 Дно пока не подтверждается"
+        )
 
     elif score <= 4:
-        status = "🟧 Возможна капитуляция"
+
+        status = (
+            "🟧 Возможна капитуляция"
+        )
 
     elif score <= 6:
-        status = "🟨 Формируются признаки дна"
+
+        status = (
+            "🟨 Формируются признаки дна"
+        )
 
     elif score <= 8:
-        status = "🟢 Сильные признаки разворота"
+
+        status = (
+            "🟢 Сильные признаки разворота"
+        )
 
     else:
-        status = "🚀 Очень сильная техническая структура"
+
+        status = (
+            "🚀 Очень сильная структура"
+        )
 
     return {
         "price": price,
@@ -257,35 +435,23 @@ def analyze():
 
 
 # =========================
-# TELEGRAM
+# MESSAGE FORMAT
 # =========================
-
-def send_telegram(text):
-
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{TELEGRAM_TOKEN}/sendMessage"
-    )
-
-    requests.post(
-        url,
-        json={
-            "chat_id": CHAT_ID,
-            "text": text
-        },
-        timeout=15
-    )
-
 
 def format_status(data):
 
-    reasons = data["reasons"]
+    if data["reasons"]:
 
-    reason_text = (
-        "\n".join("• " + x for x in reasons)
-        if reasons
-        else "• Значимых сигналов пока нет"
-    )
+        reasons = "\n".join(
+            "• " + x
+            for x in data["reasons"]
+        )
+
+    else:
+
+        reasons = (
+            "• Значимых сигналов пока нет"
+        )
 
     return (
         "📊 ACH BOTTOM MONITOR\n\n"
@@ -301,98 +467,20 @@ def format_status(data):
 
         f"7d low: ${data['low_7d']:.6f}\n"
         f"30d low: ${data['low_30d']:.6f}\n"
-        f"Отскок от 7d low: {data['recovery']:+.2f}%\n\n"
 
-        f"🧭 BOTTOM SCORE: {data['score']}/10\n"
+        f"Отскок: {data['recovery']:+.2f}%\n\n"
+
+        f"🧭 BOTTOM SCORE: "
+        f"{data['score']}/10\n"
+
         f"{data['status']}\n\n"
 
         "Причины:\n"
-        f"{reason_text}\n\n"
+        f"{reasons}\n\n"
 
-        "⚠️ Это технический мониторинг, "
-        "а не финансовая рекомендация."
+        "⚠️ Технический мониторинг, "
+        "не финансовая рекомендация."
     )
-
-
-# =========================
-# TELEGRAM COMMANDS
-# =========================
-
-def telegram_commands():
-
-    global last_update_id
-
-    # Сообщаем о запуске
-    send_telegram(
-        "🟢 ACH Monitor запущен!\n\n"
-        "Команды:\n"
-        "/status — текущий анализ ACH\n"
-        "/help — список команд"
-    )
-
-    while True:
-
-        try:
-
-            url = (
-                f"https://api.telegram.org/"
-                f"bot{TELEGRAM_TOKEN}/getUpdates"
-            )
-
-            response = requests.get(
-                url,
-                params={
-                    "offset": last_update_id + 1,
-                    "timeout": 30
-                },
-                timeout=40
-            )
-
-            updates = response.json().get("result", [])
-
-            for update in updates:
-
-                last_update_id = update["update_id"]
-
-                message = update.get("message", {})
-                text = message.get("text", "").strip()
-
-                chat_id = str(
-                    message.get("chat", {}).get("id", "")
-                )
-
-                # Отвечаем только владельцу
-                if chat_id != CHAT_ID:
-                    continue
-
-                if text == "/start":
-
-                    send_telegram(
-                        "🟢 ACH Monitor работает.\n\n"
-                        "Напиши /status для текущего анализа."
-                    )
-
-                elif text == "/status":
-
-                    data = analyze()
-
-                    send_telegram(
-                        format_status(data)
-                    )
-
-                elif text == "/help":
-
-                    send_telegram(
-                        "🤖 ACH Monitor\n\n"
-                        "/status — анализ ACH\n"
-                        "/help — помощь"
-                    )
-
-        except Exception as error:
-
-            print("Telegram error:", error)
-
-            time.sleep(5)
 
 
 # =========================
@@ -403,21 +491,24 @@ def automatic_monitor():
 
     global last_alert
 
+    print(
+        "Automatic monitor started"
+    )
+
     while True:
 
         try:
 
             data = analyze()
 
-            # Уведомляем только если score существенно изменился
-            current_state = (
+            state = (
                 data["score"],
                 round(data["price"], 6)
             )
 
             if (
                 data["score"] >= 6
-                and current_state != last_alert
+                and state != last_alert
             ):
 
                 send_telegram(
@@ -425,7 +516,7 @@ def automatic_monitor():
                     + format_status(data)
                 )
 
-                last_alert = current_state
+                last_alert = state
 
             elif data["score"] < 6:
 
@@ -433,52 +524,72 @@ def automatic_monitor():
 
         except Exception as error:
 
-            print("Monitor error:", error)
+            print(
+                "Monitor error:",
+                error
+            )
 
-        time.sleep(CHECK_INTERVAL)
+        time.sleep(
+            CHECK_INTERVAL
+        )
 
 
 # =========================
-# RENDER HEALTH CHECK
+# START BACKGROUND THREADS
 # =========================
+
+def start_threads():
+
+    global telegram_thread_started
+    global monitor_thread_started
+
+    if not telegram_thread_started:
+
+        telegram_thread_started = True
+
+        threading.Thread(
+            target=telegram_commands,
+            daemon=True
+        ).start()
+
+    if not monitor_thread_started:
+
+        monitor_thread_started = True
+
+        threading.Thread(
+            target=automatic_monitor,
+            daemon=True
+        ).start()
+
+
+# =========================
+# FLASK
+# =========================
+
+@app.before_request
+def ensure_threads():
+
+    start_threads()
+
 
 @app.get("/")
 def home():
 
-    return "ACH Bottom Monitor is running", 200
+    return (
+        "ACH Bottom Monitor is running",
+        200
+    )
 
 
 @app.get("/test")
 def test():
 
     send_telegram(
-        "🟢 ACH Monitor: Telegram connection works!"
+        "🟢 ACH Monitor: "
+        "Telegram connection works!"
     )
 
-    return "Test message sent", 200
-
-
-# =========================
-# START
-# =========================
-
-if __name__ == "__main__":
-
-    threading.Thread(
-        target=telegram_commands,
-        daemon=True
-    ).start()
-
-    threading.Thread(
-        target=automatic_monitor,
-        daemon=True
-    ).start()
-
-    port = int(
-        os.getenv("PORT", "10000")
-    )
-
-    app.run(
-        host="0.0.0.0",
-        port=port
-    )
+    return (
+        "Test message sent",
+        200
+        )
