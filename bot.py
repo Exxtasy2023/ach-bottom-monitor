@@ -580,9 +580,19 @@ def home():
         200
     )
 
-
 @app.get("/test")
 def test():
+
+    send_telegram(
+        "🟢 ACH Monitor: "
+        "Telegram connection works!"
+    )
+
+    return (
+        "Test message sent",
+        200
+    )
+
 @app.get("/history-test")
 def history_test():
 
