@@ -257,7 +257,199 @@ def percentage_change(old, new):
         / old
         * 100
     )
+def historical_analysis(df):
 
+    closes = df["priceClose"].astype(float).tolist()
+    volumes = df["volume"].astype(float).tolist()
+
+    if len(closes) < 120:
+        return {
+            "matches": 0,
+            "avg_30": None,
+            "avg_90": None,
+            "positive_30": None,
+            "positive_90": None
+        }
+
+    matches = []
+
+    # Анализируем исторические дни,
+    # для которых ещё есть 90 дней будущих данных.
+    for i in range(31, len(closes) - 90):
+
+        window = closes[:i + 1]
+        volume_window = volumes[:i + 1]
+
+        rsi = calculate_rsi(
+            window
+        )
+
+        if rsi is None:
+            continue
+
+        price = closes[i]
+
+        low_30 = min(
+            closes[i - 29:i + 1]
+        )
+
+        distance_to_low = (
+            (price - low_30)
+            / low_30
+            * 100
+            if low_30 > 0
+            else 0
+        )
+
+        avg_volume = (
+            sum(volume_window[i - 20:i])
+            / 20
+            if i >= 20
+            else 0
+        )
+
+        volume_ratio = (
+            volumes[i] / avg_volume
+            if avg_volume > 0
+            else 0
+        )
+
+        change_7d = (
+            percentage_change(
+                closes[i - 7],
+                price
+            )
+            if i >= 7
+            else 0
+        )
+
+        # Сравниваем исторический день
+        # с текущей структурой.
+        current_price = closes[-1]
+
+        current_low_30 = min(
+            closes[-30:]
+        )
+
+        current_distance = (
+            (current_price - current_low_30)
+            / current_low_30
+            * 100
+            if current_low_30 > 0
+            else 0
+        )
+
+        current_rsi = calculate_rsi(
+            closes
+        )
+
+        current_avg_volume = (
+            sum(volumes[-21:-1])
+            / 20
+            if len(volumes) >= 21
+            else 0
+        )
+
+        current_volume_ratio = (
+            volumes[-1] / current_avg_volume
+            if current_avg_volume > 0
+            else 0
+        )
+
+        current_change_7d = percentage_change(
+            closes[-8],
+            closes[-1]
+        )
+
+        # Похожая структура:
+        # RSI ±8
+        # расстояние до 30d low ±5 п.п.
+        # объём ±0.8x
+        # 7d изменение ±5 п.п.
+        similarity = 0
+
+        if abs(rsi - current_rsi) <= 8:
+            similarity += 1
+
+        if abs(
+            distance_to_low - current_distance
+        ) <= 5:
+            similarity += 1
+
+        if abs(
+            volume_ratio - current_volume_ratio
+        ) <= 0.8:
+            similarity += 1
+
+        if abs(
+            change_7d - current_change_7d
+        ) <= 5:
+            similarity += 1
+
+        if similarity >= 3:
+
+            future_30 = percentage_change(
+                price,
+                closes[i + 30]
+            )
+
+            future_90 = percentage_change(
+                price,
+                closes[i + 90]
+            )
+
+            matches.append(
+                (
+                    future_30,
+                    future_90
+                )
+            )
+
+    if not matches:
+
+        return {
+            "matches": 0,
+            "avg_30": None,
+            "avg_90": None,
+            "positive_30": None,
+            "positive_90": None
+        }
+
+    avg_30 = (
+        sum(x[0] for x in matches)
+        / len(matches)
+    )
+
+    avg_90 = (
+        sum(x[1] for x in matches)
+        / len(matches)
+    )
+
+    positive_30 = (
+        sum(
+            1 for x in matches
+            if x[0] > 0
+        )
+        / len(matches)
+        * 100
+    )
+
+    positive_90 = (
+        sum(
+            1 for x in matches
+            if x[1] > 0
+        )
+        / len(matches)
+        * 100
+    )
+
+    return {
+        "matches": len(matches),
+        "avg_30": avg_30,
+        "avg_90": avg_90,
+        "positive_30": positive_30,
+        "positive_90": positive_90
+                }
 
 # =========================
 # ANALYSIS
@@ -448,7 +640,9 @@ def analyze():
         status = (
             "🚀 Очень сильная структура"
         )
-
+    historical = historical_analysis(
+        df
+    )
     return {
         "price": price,
         "btc_price": btc_price,
@@ -465,6 +659,7 @@ def analyze():
         "score": score,
         "status": status,
         "reasons": reasons
+        "historical": historical,
     }
 
 
