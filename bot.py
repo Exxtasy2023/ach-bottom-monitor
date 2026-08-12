@@ -593,36 +593,3 @@ def test():
         200
     )
 
-@app.get("/history-test")
-def history_test():
-
-    try:
-        response = requests.get(
-            "https://api.coingecko.com/api/v3/coins/alchemy-pay/market_chart",
-            params={
-                "vs_currency": "usd",
-                "days": "max",
-                "interval": "daily"
-            },
-            timeout=30
-        )
-
-        return (
-            f"STATUS: {response.status_code}\n"
-            f"LENGTH: {len(response.text)}\n"
-            f"{response.text[:1000]}",
-            200
-        )
-
-    except Exception as error:
-
-        return f"ERROR: {error}", 500
-    send_telegram(
-        "🟢 ACH Monitor: "
-        "Telegram connection works!"
-    )
-
-    return (
-        "Test message sent",
-        200
-        )
