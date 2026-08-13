@@ -667,6 +667,7 @@ def analyze():
 # MESSAGE FORMAT
 # =========================
 
+
 def format_status(data):
 
     if data["reasons"]:
@@ -680,6 +681,46 @@ def format_status(data):
 
         reasons = (
             "• Значимых сигналов пока нет"
+        )
+
+    historical = data.get(
+        "historical",
+        {}
+    )
+
+    matches = historical.get(
+        "matches",
+        0
+    )
+
+    if matches > 0:
+
+        avg_30 = historical["avg_30"]
+        avg_90 = historical["avg_90"]
+
+        positive_30 = historical[
+            "positive_30"
+        ]
+
+        positive_90 = historical[
+            "positive_90"
+        ]
+
+        historical_text = (
+            "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
+            f"Похожих случаев: {matches}\n"
+            f"30 дней: {avg_30:+.1f}% в среднем\n"
+            f"Рост в 30d: {positive_30:.0f}% случаев\n"
+            f"90 дней: {avg_90:+.1f}% в среднем\n"
+            f"Рост в 90d: {positive_90:.0f}% случаев"
+        )
+
+    else:
+
+        historical_text = (
+            "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
+            "Похожих исторических случаев "
+            "пока не найдено."
         )
 
     return (
@@ -707,10 +748,11 @@ def format_status(data):
         "Причины:\n"
         f"{reasons}\n\n"
 
+        f"{historical_text}\n\n"
+
         "⚠️ Технический мониторинг, "
         "не финансовая рекомендация."
     )
-
 
 # =========================
 # AUTOMATIC MONITOR
