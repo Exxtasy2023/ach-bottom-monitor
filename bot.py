@@ -658,7 +658,7 @@ def analyze():
         "higher_low": higher_low,
         "score": score,
         "status": status,
-        "reasons": reasons
+        "reasons": reasons,
         "historical": historical,
     }
 
