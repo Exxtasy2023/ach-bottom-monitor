@@ -636,7 +636,9 @@ def analyze():
             "Not enough historical ACH data"
         )
 
-    price = closes[-1]
+    historical_price = closes[-1]
+
+price = get_current_ach_price()
 
     btc_price = 0
 
