@@ -798,8 +798,6 @@ def analyze():
 # =========================
 # MESSAGE FORMAT
 # =========================
-
-
 def format_status(data):
 
     if data["reasons"]:
@@ -815,7 +813,7 @@ def format_status(data):
             "• Значимых сигналов пока нет"
         )
 
-        historical = data.get(
+    historical = data.get(
         "historical",
         {}
     )
@@ -829,6 +827,7 @@ def format_status(data):
 
         historical_text = (
             "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
+
             f"Похожих случаев: {matches}\n\n"
 
             f"7 дней:\n"
@@ -865,23 +864,6 @@ def format_status(data):
             "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
             "Похожих исторических случаев "
             "не найдено."
-        )
-
-        historical_text = (
-            "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
-            f"Похожих случаев: {matches}\n"
-            f"30 дней: {avg_30:+.1f}% в среднем\n"
-            f"Рост в 30d: {positive_30:.0f}% случаев\n"
-            f"90 дней: {avg_90:+.1f}% в среднем\n"
-            f"Рост в 90d: {positive_90:.0f}% случаев"
-        )
-
-    else:
-
-        historical_text = (
-            "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
-            "Похожих исторических случаев "
-            "пока не найдено."
         )
 
     return (
