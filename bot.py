@@ -638,7 +638,7 @@ def analyze():
 
     historical_price = closes[-1]
 
-price = get_current_ach_price()
+    price = get_current_ach_price()
 
     btc_price = 0
 
