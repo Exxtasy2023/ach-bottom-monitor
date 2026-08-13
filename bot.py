@@ -815,7 +815,7 @@ def format_status(data):
             "• Значимых сигналов пока нет"
         )
 
-    historical = data.get(
+        historical = data.get(
         "historical",
         {}
     )
@@ -827,16 +827,45 @@ def format_status(data):
 
     if matches > 0:
 
-        avg_30 = historical["avg_30"]
-        avg_90 = historical["avg_90"]
+        historical_text = (
+            "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
+            f"Похожих случаев: {matches}\n\n"
 
-        positive_30 = historical[
-            "positive_30"
-        ]
+            f"7 дней:\n"
+            f"• среднее: "
+            f"{historical['avg_7']:+.1f}%\n"
+            f"• медиана: "
+            f"{historical['median_7']:+.1f}%\n"
+            f"• рост: "
+            f"{historical['positive_7']:.0f}% случаев\n\n"
 
-        positive_90 = historical[
-            "positive_90"
-        ]
+            f"30 дней:\n"
+            f"• среднее: "
+            f"{historical['avg_30']:+.1f}%\n"
+            f"• медиана: "
+            f"{historical['median_30']:+.1f}%\n"
+            f"• рост: "
+            f"{historical['positive_30']:.0f}% случаев\n\n"
+
+            f"90 дней:\n"
+            f"• среднее: "
+            f"{historical['avg_90']:+.1f}%\n"
+            f"• медиана: "
+            f"{historical['median_90']:+.1f}%\n"
+            f"• рост: "
+            f"{historical['positive_90']:.0f}% случаев\n\n"
+
+            f"Макс. рост за 90d: "
+            f"{historical['max_gain']:+.1f}%"
+        )
+
+    else:
+
+        historical_text = (
+            "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
+            "Похожих исторических случаев "
+            "не найдено."
+        )
 
         historical_text = (
             "📚 ИСТОРИЧЕСКИЕ АНАЛОГИ\n\n"
