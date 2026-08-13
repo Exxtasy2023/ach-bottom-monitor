@@ -137,7 +137,37 @@ import pandas as pd
 
 HISTORY_FILE = "alchemy-pay.xlsx"
 
+def get_current_ach_price():
 
+    api_key = os.environ["CMC_API_KEY"]
+
+    response = requests.get(
+        "https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest",
+        headers={
+            "X-CMC_PRO_API_KEY": api_key
+        },
+        params={
+            "symbol": "ACH",
+            "convert": "USD"
+        },
+        timeout=15
+    )
+
+    response.raise_for_status()
+
+    payload = response.json()
+
+    ach_data = payload["data"]["ACH"]
+
+    if isinstance(ach_data, list):
+        ach_data = ach_data[0]
+
+    price = ach_data[
+        "quote"
+    ]["USD"]["price"]
+
+    return float(price)
+    
 def load_ach_history():
 
     df = pd.read_excel(
