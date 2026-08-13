@@ -257,31 +257,84 @@ def percentage_change(old, new):
         / old
         * 100
     )
+
 def historical_analysis(df):
 
     closes = df["priceClose"].astype(float).tolist()
     volumes = df["volume"].astype(float).tolist()
 
-    if len(closes) < 120:
+    if len(closes) < 130:
         return {
             "matches": 0,
+            "avg_7": None,
+            "median_7": None,
             "avg_30": None,
+            "median_30": None,
             "avg_90": None,
+            "median_90": None,
+            "positive_7": None,
             "positive_30": None,
-            "positive_90": None
+            "positive_90": None,
+            "max_gain": None
         }
+
+    # -------------------------
+    # CURRENT STRUCTURE
+    # -------------------------
+
+    current_rsi = calculate_rsi(closes)
+
+    current_price = closes[-1]
+
+    current_low_30 = min(
+        closes[-30:]
+    )
+
+    current_distance = (
+        (current_price - current_low_30)
+        / current_low_30
+        * 100
+        if current_low_30 > 0
+        else 0
+    )
+
+    current_avg_volume = (
+        sum(volumes[-21:-1])
+        / 20
+        if len(volumes) >= 21
+        else 0
+    )
+
+    current_volume_ratio = (
+        volumes[-1] / current_avg_volume
+        if current_avg_volume > 0
+        else 0
+    )
+
+    current_change_7d = percentage_change(
+        closes[-8],
+        closes[-1]
+    )
+
+    # -------------------------
+    # FIND HISTORICAL MATCHES
+    # -------------------------
 
     matches = []
 
-    # Анализируем исторические дни,
-    # для которых ещё есть 90 дней будущих данных.
+    last_match_index = -999
+
     for i in range(31, len(closes) - 90):
 
-        window = closes[:i + 1]
-        volume_window = volumes[:i + 1]
+        # Не берём близкие исторические дни.
+        # Минимум 14 дней между сигналами.
+        if i - last_match_index < 14:
+            continue
+
+        historical_closes = closes[:i + 1]
 
         rsi = calculate_rsi(
-            window
+            historical_closes
         )
 
         if rsi is None:
@@ -293,164 +346,243 @@ def historical_analysis(df):
             closes[i - 29:i + 1]
         )
 
+        if low_30 <= 0:
+            continue
+
         distance_to_low = (
             (price - low_30)
             / low_30
             * 100
-            if low_30 > 0
-            else 0
         )
 
         avg_volume = (
-            sum(volume_window[i - 20:i])
+            sum(volumes[i - 20:i])
             / 20
-            if i >= 20
-            else 0
         )
+
+        if avg_volume <= 0:
+            continue
 
         volume_ratio = (
-            volumes[i] / avg_volume
-            if avg_volume > 0
-            else 0
+            volumes[i]
+            / avg_volume
         )
 
-        change_7d = (
-            percentage_change(
-                closes[i - 7],
-                price
-            )
-            if i >= 7
-            else 0
+        change_7d = percentage_change(
+            closes[i - 7],
+            price
         )
 
-        # Сравниваем исторический день
-        # с текущей структурой.
-        current_price = closes[-1]
+        # -------------------------
+        # STRICT SIMILARITY
+        # -------------------------
 
-        current_low_30 = min(
-            closes[-30:]
-        )
-
-        current_distance = (
-            (current_price - current_low_30)
-            / current_low_30
-            * 100
-            if current_low_30 > 0
-            else 0
-        )
-
-        current_rsi = calculate_rsi(
-            closes
-        )
-
-        current_avg_volume = (
-            sum(volumes[-21:-1])
-            / 20
-            if len(volumes) >= 21
-            else 0
-        )
-
-        current_volume_ratio = (
-            volumes[-1] / current_avg_volume
-            if current_avg_volume > 0
-            else 0
-        )
-
-        current_change_7d = percentage_change(
-            closes[-8],
-            closes[-1]
-        )
-
-        # Похожая структура:
-        # RSI ±8
-        # расстояние до 30d low ±5 п.п.
-        # объём ±0.8x
-        # 7d изменение ±5 п.п.
         similarity = 0
 
-        if abs(rsi - current_rsi) <= 8:
-            similarity += 1
-
+        # RSI
         if abs(
-            distance_to_low - current_distance
+            rsi - current_rsi
         ) <= 5:
+
             similarity += 1
 
+        # Near 30d low
         if abs(
-            volume_ratio - current_volume_ratio
-        ) <= 0.8:
+            distance_to_low
+            - current_distance
+        ) <= 3:
+
             similarity += 1
 
+        # Volume
         if abs(
-            change_7d - current_change_7d
-        ) <= 5:
+            volume_ratio
+            - current_volume_ratio
+        ) <= 0.5:
+
             similarity += 1
 
-        if similarity >= 3:
+        # 7d momentum
+        if abs(
+            change_7d
+            - current_change_7d
+        ) <= 3:
 
-            future_30 = percentage_change(
-                price,
-                closes[i + 30]
-            )
+            similarity += 1
 
-            future_90 = percentage_change(
-                price,
-                closes[i + 90]
-            )
+        # Требуем совпадение
+        # минимум по 3 из 4 признаков.
+        if similarity < 3:
+            continue
 
-            matches.append(
-                (
-                    future_30,
-                    future_90
-                )
-            )
+        # -------------------------
+        # FUTURE RETURNS
+        # -------------------------
+
+        result_7 = percentage_change(
+            price,
+            closes[i + 7]
+        )
+
+        result_30 = percentage_change(
+            price,
+            closes[i + 30]
+        )
+
+        result_90 = percentage_change(
+            price,
+            closes[i + 90]
+        )
+
+        # Максимальный рост в следующие 90 дней
+        future_prices = closes[
+            i + 1:i + 91
+        ]
+
+        max_future_price = max(
+            future_prices
+        )
+
+        max_gain = percentage_change(
+            price,
+            max_future_price
+        )
+
+        matches.append({
+            "return_7": result_7,
+            "return_30": result_30,
+            "return_90": result_90,
+            "max_gain": max_gain
+        })
+
+        last_match_index = i
+
+    # -------------------------
+    # NO MATCHES
+    # -------------------------
 
     if not matches:
 
         return {
             "matches": 0,
+            "avg_7": None,
+            "median_7": None,
             "avg_30": None,
+            "median_30": None,
             "avg_90": None,
+            "median_90": None,
+            "positive_7": None,
             "positive_30": None,
-            "positive_90": None
+            "positive_90": None,
+            "max_gain": None
         }
 
-    avg_30 = (
-        sum(x[0] for x in matches)
-        / len(matches)
-    )
+    # -------------------------
+    # STATISTICS
+    # -------------------------
 
-    avg_90 = (
-        sum(x[1] for x in matches)
-        / len(matches)
-    )
+    returns_7 = [
+        x["return_7"]
+        for x in matches
+    ]
 
-    positive_30 = (
-        sum(
-            1 for x in matches
-            if x[0] > 0
-        )
-        / len(matches)
-        * 100
-    )
+    returns_30 = [
+        x["return_30"]
+        for x in matches
+    ]
 
-    positive_90 = (
-        sum(
-            1 for x in matches
-            if x[1] > 0
-        )
-        / len(matches)
-        * 100
-    )
+    returns_90 = [
+        x["return_90"]
+        for x in matches
+    ]
+
+    max_gains = [
+        x["max_gain"]
+        for x in matches
+    ]
+
+    def median(values):
+
+        values = sorted(values)
+
+        n = len(values)
+
+        middle = n // 2
+
+        if n % 2 == 1:
+
+            return values[middle]
+
+        return (
+            values[middle - 1]
+            + values[middle]
+        ) / 2
 
     return {
         "matches": len(matches),
-        "avg_30": avg_30,
-        "avg_90": avg_90,
-        "positive_30": positive_30,
-        "positive_90": positive_90
-                }
 
+        "avg_7": (
+            sum(returns_7)
+            / len(returns_7)
+        ),
+
+        "median_7": median(
+            returns_7
+        ),
+
+        "avg_30": (
+            sum(returns_30)
+            / len(returns_30)
+        ),
+
+        "median_30": median(
+            returns_30
+        ),
+
+        "avg_90": (
+            sum(returns_90)
+            / len(returns_90)
+        ),
+
+        "median_90": median(
+            returns_90
+        ),
+
+        "positive_7": (
+            sum(
+                1
+                for x in returns_7
+                if x > 0
+            )
+            / len(returns_7)
+            * 100
+        ),
+
+        "positive_30": (
+            sum(
+                1
+                for x in returns_30
+                if x > 0
+            )
+            / len(returns_30)
+            * 100
+        ),
+
+        "positive_90": (
+            sum(
+                1
+                for x in returns_90
+                if x > 0
+            )
+            / len(returns_90)
+            * 100
+        ),
+
+        "max_gain": (
+            sum(max_gains)
+            / len(max_gains)
+        )
+    }
 # =========================
 # ANALYSIS
 # =========================
